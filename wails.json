@@ -1,13 +1,12 @@
 {
-  "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "dataPanel",
+    "$schema": "https://wails.io/schemas/config.v2.json",
+    "name": "dataPanel",
   "outputfilename": "dataPanel",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "zhangyu",
-    "email": "2470838639@qq.com"
+    "name": "zy"
   }
 }

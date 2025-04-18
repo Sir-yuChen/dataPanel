@@ -1,29 +1,34 @@
 import { useState } from 'react';
 import logo from './assets/images/logo-universal.png';
 import './App.css';
-import { Greet } from "../wailsjs/go/main/App";
+import { GetHello } from '../wailsjs/go/exposed/HelloWails';
+import { EventsOn } from '../runtime/runtime';
 
 function App() {
     const [resultText, setResultText] = useState("Please enter your name below 👇");
     const [name, setName] = useState('');
     const updateName = (e: any) => setName(e.target.value);
-    const updateResultText = (result: string) => setResultText(result);
 
-    function greet() {
-        Greet(name).then(updateResultText);
+    EventsOn("showSearch", () => {
+        setName("被触发");
+    });
+    const greet = async () => {
+        GetHello().then((result) => {
+            setName(result);
+        });
     }
 
     return (
         <div id="App">
             <img src={logo} id="logo" alt="logo" />
-            <div id="result" className="result">{resultText}</div>
-            <div id="result" className="result">这是一个数据面板</div>
+            <div id="result" className="result">{resultText + name}</div>
+            <div id="result" className="result">这是一个数据面板----测试</div>
             <div id="input" className="input-box">
-                <input id="name" className="input" onChange={updateName} autoComplete="off" name="input" type="text" />
-                <button className="btn" onClick={greet}>Greet</button>
+                <button className="btn" onClick={greet}>Hello</button>
             </div>
         </div>
     )
 }
 
 export default App
+
