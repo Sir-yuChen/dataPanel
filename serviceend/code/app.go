@@ -6,12 +6,15 @@ import (
 	"dataPanel/serviceend/global"
 	"dataPanel/serviceend/model/configModel"
 	"dataPanel/serviceend/utils"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/energye/systray"
+	"github.com/energye/systray/icon"
 	"github.com/go-toast/toast"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -24,6 +27,8 @@ type App struct {
 	Handler http.Handler
 	ctx     context.Context
 }
+
+var DefaultIcon = icon.Data
 
 func NewApp() *App {
 	app := &App{}
@@ -75,16 +80,34 @@ func (a *App) SetCtx(ctx context.Context) *App {
 	return a
 }
 
-// wails 生命周期
+// Startup wails 生命周期
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	//设置状态栏菜单
+	InitSystray(func() {
+		mainMenuItem := systray.AddMenuItem("主页面", "显示主页面")
+		mainMenuItem.Click(func() {
+			runtime.WindowShow(ctx)
+		})
+		hide := systray.AddMenuItem("隐藏", "隐藏应用程序")
+		hide.Click(func() {
+			runtime.WindowHide(a.ctx)
+		})
+		systray.AddSeparator()
+		quitMenuItem := systray.AddMenuItem("退出", "退出程序")
+		quitMenuItem.Click(func() {
+			a.Shutdown(a.ctx)
+			os.Exit(0)
+		})
+	})
 	//启动本地服务
 	go func() {
 		global.GvaLog.Info("启动本地后台服务", zap.Any("Addr", a.srv.Addr))
 		// 服务连接
-		if err := a.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			switch err.(type) {
-			case *net.OpError:
+		if err := a.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			var opError *net.OpError
+			switch {
+			case errors.As(err, &opError):
 				_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 					Title:   "错误",
 					Type:    runtime.ErrorDialog,
@@ -122,6 +145,8 @@ func (a *App) BeforeClose(ctx context.Context) bool {
 
 	return false
 }
+
+// OnSecondInstanceLaunch 应用重复启动
 func (a *App) OnSecondInstanceLaunch(secondInstanceData options.SecondInstanceData) {
 	notification := toast.Notification{
 		AppID:    global.GvaConfig.System.ApplicationName,
@@ -136,4 +161,36 @@ func (a *App) OnSecondInstanceLaunch(secondInstanceData options.SecondInstanceDa
 		global.GvaLog.Error("服务异常", zap.Error(err))
 	}
 	time.Sleep(time.Second * 3)
+}
+
+// InitSystray 状态栏图标设置
+func InitSystray(init func()) {
+	systray.Run(func() {
+		systray.SetIcon(icon.Data)
+		systray.SetTitle(global.GvaConfig.System.ApplicationName)
+
+		systray.SetOnClick(func(menu systray.IMenu) {
+			fmt.Println("SetOnClick")
+		})
+		systray.SetOnDClick(func(menu systray.IMenu) {
+			fmt.Println("SetOnDClick")
+		})
+		systray.SetOnRClick(func(menu systray.IMenu) {
+			fmt.Println("SetOnRClick")
+			err := menu.ShowMenu()
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+
+		})
+
+		if init != nil {
+			init()
+		}
+	}, onExit)
+}
+
+func onExit() {
+
 }
