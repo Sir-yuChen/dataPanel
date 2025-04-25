@@ -142,8 +142,25 @@ func (a *App) DomReady(ctx context.Context) {
 }
 
 func (a *App) BeforeClose(ctx context.Context) bool {
+	dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		Type:         runtime.QuestionDialog,
+		Title:        global.GvaConfig.System.ApplicationName,
+		Message:      "确定关闭吗？",
+		Buttons:      []string{"确定"},
+		Icon:         icon.Data,
+		CancelButton: "取消",
+	})
 
-	return false
+	if err != nil {
+		global.GvaLog.Error("关闭应用异常", zap.Error(err))
+		return false
+	}
+	if dialog == "No" {
+		return true
+	} else {
+		systray.Quit()
+		return false
+	}
 }
 
 // OnSecondInstanceLaunch 应用重复启动

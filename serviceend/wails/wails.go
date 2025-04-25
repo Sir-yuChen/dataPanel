@@ -7,10 +7,7 @@ import (
 	"dataPanel/serviceend/wails/exposed"
 	"embed"
 
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -27,12 +24,12 @@ func Run() {
 	app := code.NewApp()
 	helloWails := exposed.NewHelloWails()
 	// 设置菜单项 无边框状态下，快捷键可用
-	AppMenu := menu.NewMenu()
-	FileMenu := AppMenu.AddSubmenu("应用设置")
-	FileMenu.AddText("显示搜索框", keys.CmdOrCtrl("d"), func(callbackData *menu.CallbackData) {
-		//触发调用前端方法showSearch
-		runtime.EventsEmit(app.Ctx(), "showSearch", 1)
-	})
+	// AppMenu := menu.NewMenu()
+	// FileMenu := AppMenu.AddSubmenu("应用设置")
+	// FileMenu.AddText("显示搜索框", keys.CmdOrCtrl("d"), func(callbackData *menu.CallbackData) {
+	// 	//触发调用前端方法showSearch
+	// 	runtime.EventsEmit(app.Ctx(), "showSearch", 1)
+	// })
 
 	opts := &options.App{
 		Title:             global.GvaConfig.System.ApplicationName,
@@ -49,7 +46,7 @@ func Run() {
 		HideWindowOnClose: true,
 		AlwaysOnTop:       false,
 		BackgroundColour:  &options.RGBA{R: 255, G: 255, B: 255, A: 0},
-		Menu:              AppMenu,
+		Menu:              nil,
 		Logger:            nil,
 		LogLevel:          logger.DEBUG,
 		OnStartup: func(ctx context.Context) {
