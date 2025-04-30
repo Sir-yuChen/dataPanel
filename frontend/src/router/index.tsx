@@ -6,12 +6,12 @@ import { IRouter, router } from './config';
 
 const CenteredSpin = () => (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Spin />
+        <Spin tip="Loading..." />
     </div>
 );
 
 const RouteRender = () => {
-    // 递归地渲染路由
+    // 递归渲染页面路由
     const routeRender = (router: Array<IRouter>) => {
         return router.map(item => {
             return (

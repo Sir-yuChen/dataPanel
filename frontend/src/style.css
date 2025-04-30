@@ -1,26 +1,33 @@
+* {
+    margin: 0;
+    padding: 0;
+}
+.html,.body{
+    width: 100%;
+    height: 100%
+}
 html {
     background-color: rgba(27, 38, 54, 1);
     text-align: center;
     color: white;
+    
 }
-
 body {
     margin: 0;
+    padding: 0;
     color: white;
     font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
+    overflow: auto;
+    /* 启用滚动功能 */
+    -ms-overflow-style: none;
+    /* 适用于 Internet Explorer 和旧版 Edge */
+    scrollbar-width: none;
+    /* 适用于 Firefox */
 }
-
-@font-face {
-    font-family: "Nunito";
-    font-style: normal;
-    font-weight: 400;
-    src: local(""),
-    url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
-}
-
-#app {
-    height: 100vh;
-    text-align: center;
+/* Webkit 浏览器 */
+body::-webkit-scrollbar {
+    display: none;
+    /* 隐藏滚动条 */
 }

@@ -33,13 +33,13 @@ func Run() {
 
 	opts := &options.App{
 		Title:             global.GvaConfig.System.ApplicationName,
-		Width:             1024,
-		Height:            768,
+		Width:             1200,
+		Height:            700,
 		DisableResize:     false,
 		Fullscreen:        false,
 		Frameless:         false,
-		MinWidth:          1024, // 16:10
-		MinHeight:         640,  // 16:10
+		MinWidth:          1200,
+		MinHeight:         700,
 		MaxWidth:          -1,
 		MaxHeight:         -1,
 		StartHidden:       false,

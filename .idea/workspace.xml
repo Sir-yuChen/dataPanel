@@ -4,23 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4a583e71-f8fa-4338-98e5-af1a7cda7ff2" name="Changes" comment="init">
-      <change beforePath="$PROJECT_DIR$/frontend/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/package.json.md5" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json.md5" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/config/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/config/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/go/code/App.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/go/code/App.d.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/go/code/App.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/go/code/App.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/go/exposed/HelloWails.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/go/exposed/HelloWails.d.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/go/exposed/HelloWails.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/go/exposed/HelloWails.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/go/models.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/go/models.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/runtime/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/runtime/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/runtime/runtime.d.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/runtime/runtime.d.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/wailsjs/runtime/runtime.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/wailsjs/runtime/runtime.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/yarn.lock" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/yarn.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/serviceend/code/app.go" beforeDir="false" afterPath="$PROJECT_DIR$/serviceend/code/app.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/serviceend/wails/wails.go" beforeDir="false" afterPath="$PROJECT_DIR$/serviceend/wails/wails.go" afterDir="false" />
-    </list>
+    <list default="true" id="4a583e71-f8fa-4338-98e5-af1a7cda7ff2" name="Changes" comment="react" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -151,7 +135,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="init" />
-    <option name="LAST_COMMIT_MESSAGE" value="init" />
+    <MESSAGE value="react" />
+    <option name="LAST_COMMIT_MESSAGE" value="react" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

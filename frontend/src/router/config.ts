@@ -1,4 +1,3 @@
-import Home from '@/pages/home';
 import { lazy } from 'react';
 
 export interface IRouter {
@@ -25,15 +24,17 @@ export const router: Array<IRouter> = [
     //         }
     //     ]
     // },
-
     {
-        path: '/',
-        component: Home,
+        path: '/home',
+        component: lazy(() => import('@/pages/home'))
+    },
+    {
+        path: '/setting',
+        component: lazy(() => import('@/pages/setting'))
     },
     //最低优先级，路由匹配，404
     {
         path: '*',
         component: lazy(() => import('@/pages/error')),
-        redirect: '/'
     }
 ];
