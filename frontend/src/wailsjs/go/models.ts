@@ -22,7 +22,8 @@ export namespace configModel {
 	    env: string;
 	    addr: number;
 	    "db-type": string;
-	    "use-multipoint": boolean;
+	    "db-path": string;
+	    "temp-path": string;
 	
 	    static createFrom(source: any = {}) {
 	        return new System(source);
@@ -34,7 +35,8 @@ export namespace configModel {
 	        this.env = source["env"];
 	        this.addr = source["addr"];
 	        this["db-type"] = source["db-type"];
-	        this["use-multipoint"] = source["use-multipoint"];
+	        this["db-path"] = source["db-path"];
+	        this["temp-path"] = source["temp-path"];
 	    }
 	}
 

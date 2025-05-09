@@ -3,7 +3,9 @@ package utils
 import (
 	"dataPanel/serviceend/global"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"go.uber.org/zap"
 )
@@ -49,4 +51,21 @@ func CreateDir(dirs ...string) (err error) {
 		}
 	}
 	return err
+}
+
+func CreateFileWithDir(path string) (file *os.File, err error) {
+	// 确保目录存在（带权限控制）
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return nil, fmt.Errorf("创建目录失败: %w", err)
+	}
+	// 原子操作创建文件（带独占标志和权限控制）
+	file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
+	switch {
+	case os.IsExist(err):
+		return file, nil
+	case err != nil:
+		return file, fmt.Errorf("创建文件失败: %w", err)
+	}
+	return file, nil
 }

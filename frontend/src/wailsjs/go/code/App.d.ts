@@ -7,6 +7,8 @@ import {configModel} from '../models';
 
 export function Ctx():Promise<context.Context>;
 
+export function InitLoadData(arg1:string):Promise<void>;
+
 export function OnSecondInstanceLaunch(arg1:options.SecondInstanceData):Promise<void>;
 
 export function SetCtx(arg1:context.Context):Promise<code.App>;

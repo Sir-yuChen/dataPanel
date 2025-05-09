@@ -1,17 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
-
-
-
 import { apiBaseURL } from '@/config';
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 interface ApiResponse<T> {
     code: number;
     message: string; // 用一个更具体的字段来描述错误信息
     data: T;
 }
-
+// const showMessage = useShowMessage()
 export class Request {
+
+
     private instance: AxiosInstance;
     private defaultConfig: AxiosRequestConfig = { baseURL: apiBaseURL, timeout: 6000 };
 
@@ -39,6 +38,7 @@ export class Request {
             },
             (error: AxiosError) => {
                 const apiError = error.response?.data; // 修改到更具体的错误信息字段
+                // showMessage('error', error.response?.data)
                 return Promise.reject(apiError);
             }
         );

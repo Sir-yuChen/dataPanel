@@ -4,6 +4,7 @@ import (
 	"context"
 	"dataPanel/serviceend/code/internal"
 	"dataPanel/serviceend/global"
+	"dataPanel/serviceend/model"
 	"dataPanel/serviceend/model/configModel"
 	"dataPanel/serviceend/utils"
 	"errors"
@@ -51,9 +52,45 @@ func (a *App) load() {
 	a.Handler = engine.Handler()
 }
 
-// // 初始化日志
+// 数据加载 todo
+func (a *App) InitLoadData(dataType string) {
+	msg := model.MessageDialogModel{
+		Content:    "开始加载资源文件...",
+		DialogType: "info",
+	}
+	runtime.EventsEmit(a.ctx, "messageDialogs", msg)
+	//判断是否初次打开应用 如果不存在./dataPanel/data/ 目录则默认为初次打开，否则为非初次打开
+	if ok, _ := utils.PathExists(global.GvaConfig.System.DbPath); !ok {
+		//发起前端提示窗
+		msg.Content = "数据加载中..."
+		runtime.EventsEmit(a.ctx, "messageDialogs", msg)
+		if loaded, err := utils.GetLoadingData().Loaded(); err != nil {
+			global.GvaLog.Error("加载数据失败", zap.Error(err))
+			msg.Content = "加载数据失败,请在设置中手动触发..."
+			msg.DialogType = "error"
+			msg.Duration = 3
+			runtime.EventsEmit(a.ctx, "messageDialogs", msg)
+		} else {
+			//数据加载成功，提示用户
+			if loaded {
+				msg.Content = "数据加载成功,请稍后.."
+				msg.DialogType = "success"
+				runtime.EventsEmit(a.ctx, "messageDialogs", msg)
+			} else {
+				//数据加载失败，提示用户
+				msg.Content = "加载数据失败,请在设置中手动触发..."
+				msg.DialogType = "error"
+				msg.Duration = 3
+				runtime.EventsEmit(a.ctx, "messageDialogs", msg)
+			}
+		}
+	}
+}
+
+// InitZap 初始化日志
 func InitZap() {
-	if ok, _ := utils.PathExists(global.GvaConfig.Zap.Director); !ok { // 判断是否有Director文件夹
+	// 判断是否有Director文件夹
+	if ok, _ := utils.PathExists(global.GvaConfig.Zap.Director); !ok {
 		_ = os.Mkdir(global.GvaConfig.Zap.Director, os.ModePerm)
 	}
 
@@ -66,7 +103,6 @@ func InitZap() {
 	zap.ReplaceGlobals(logged)
 	global.GvaLog = logged
 }
-
 func (a *App) System() *configModel.System {
 	return global.GvaConfig.System
 }
@@ -137,8 +173,11 @@ func (a *App) Shutdown(ctx context.Context) {
 // DomReady is called after the front-end dom has been loaded
 // domReady 在前端Dom加载完毕后调用
 func (a *App) DomReady(ctx context.Context) {
-	// Add your action here
-	// 在这里添加你的操作
+	//配置文件和数据检查，如果不存在./dataPanel/data/ 目录则默认为初次打开，否则为非初次打开
+	if ok, _ := utils.PathExists(global.GvaConfig.System.DbPath); !ok {
+		//调起前端加载数据弹窗
+		runtime.EventsEmit(ctx, "loadData", "加载数据")
+	}
 }
 
 func (a *App) BeforeClose(ctx context.Context) bool {

@@ -2,9 +2,10 @@
 system:
   applicationName: "dataPanel" #应用名
   env: "public" # Change to "develop" to skip authentication for development mode
-  addr: 8080
-  db-type: "mysql"
-  use-multipoint: true
+  addr: 8089
+  db-type: "bolt"
+  db-path: "./dataPanel/data/"
+  temp-path: "./temp/"
 
 # zap logger configuration
 zap:

@@ -1,16 +1,19 @@
 import FloatButtonsComponent from '@/components/floatButton';
 import IconFont from '@/components/iconFont';
+import { LoadDataModalComponent } from '@/components/modal/loadDataModal';
+import { useShowLoadDataModal, useShowMessage } from '@/hooks/useShowMessage';
 import useStore from '@/hooks/useStore';
 import RouteRender from '@/router';
+import { EventsOn } from '@/wailsjs/runtime';
 import {
     AntDesignOutlined
 } from '@ant-design/icons';
 import { Affix, Avatar, Layout, Menu, Spin, theme } from 'antd';
 import { To, useNavigate } from 'react-router-dom';
+
 const { Header, Content, Footer, Sider } = Layout;
-
-
 const App = () => {
+    const showMessage = useShowMessage()
     //校验页面数据是否加载完成
     const globalStore = useStore("globalStore")
     //路由跳转
@@ -24,8 +27,25 @@ const App = () => {
     const menuOnClick = (e: { key: To; }) => {
         navigate(e.key)
     }
-
-
+    //全局监听器
+    EventsOn("messageDialogs", (re) => {
+        if (re.dialogType) {
+            if (re.duration && re.duration > 0) {
+                showMessage(re.dialogType, re.content, re.duration)
+            } else {
+                showMessage(re.dialogType, re.content)
+            }
+        }
+    })
+    const showLoadData = useShowLoadDataModal()
+    EventsOn("loadData", (re) => {
+        showLoadData.showLoadDataModal({
+            title: "加载数据配置",
+            width: 600,
+            content: <LoadDataModalComponent />,
+            isFooter: true
+        })
+    })
 
     return (
         <div style={{ height: '100vh' }}>

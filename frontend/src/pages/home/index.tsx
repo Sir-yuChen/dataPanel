@@ -3,6 +3,7 @@ import { Input, Select } from 'antd';
 import { useState } from 'react';
 import './index.css';
 
+
 const { Search } = Input;
 const { Option } = Select;
 // 首页 搜索
@@ -22,11 +23,12 @@ const Home = () => {
     );
     //搜索框，请求后端接口
     const onSearch = (value: string) => {
-        setLoading(true);
+        // setLoading(true);
         // getSearchStockList(value).then((res) => {
         //     setLoading(false);
         //     searchResult.push(res);
         // });
+        // setLoading(false);
     };
 
 
@@ -36,6 +38,7 @@ const Home = () => {
                 {/* 搜索框 居中 */}
                 <div className="home_search">
                     <Search addonBefore={selectSearchBefore} placeholder="请输入搜索关键字" enterButton="搜索" size="large" loading={loading} onSearch={onSearch} />
+
                 </div>
                 {/* 搜索结果展示 */}
             </div>
