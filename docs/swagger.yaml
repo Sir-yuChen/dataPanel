@@ -1,0 +1,101 @@
+definitions:
+  request.ConfigRequest:
+    properties:
+      key:
+        description: 配置项key值binding:"required"
+        type: string
+      value:
+        description: 最新的配置值
+        type: string
+    type: object
+  request.LoadDataParams:
+    properties:
+      dataSavePath:
+        type: string
+      loadDataChecked:
+        description: c:配置文件 a:A股 h:港股 m：美股
+        items:
+          type: string
+        type: array
+      loadDataType:
+        description: customize：历史数据导入   default：默认加载配置文件和加载数据
+        type: string
+    type: object
+  response.Response:
+    properties:
+      code:
+        example: 200
+        type: integer
+      data: {}
+      msg:
+        example: success
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /dataPanel/common/appConfig:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: 配置项key值binding:"required"
+        in: query
+        name: key
+        type: string
+      - description: 最新的配置值
+        in: query
+        name: value
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 接口返回信息
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 获取应用配置信息
+      tags:
+      - 应用设置
+  /dataPanel/common/loadData:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 请求参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/request.LoadDataParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 接口返回信息
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 加载配置文件及股票基础数据
+      tags:
+      - 应用设置
+  /dataPanel/common/updateAppConfig:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: 请求参数
+        in: body
+        name: data
+        schema:
+          $ref: '#/definitions/request.ConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 接口返回信息
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 更新应用配置信息
+      tags:
+      - 应用设置
+swagger: "2.0"

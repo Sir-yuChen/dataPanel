@@ -1,7 +1,7 @@
 package validator
 
 import (
-	"dataPanel/serviceend/utils"
+	"dataPanel/serviceend/model"
 	"database/sql/driver"
 	"reflect"
 	"regexp"
@@ -28,8 +28,8 @@ func ValidateValuer(field reflect.Value) interface{} {
 		}
 	}
 	//spec.LocalTime 类型的自定义校验规则
-	if field.Type() == reflect.TypeOf(utils.LocalTime{}) {
-		timeStr := field.Interface().(utils.LocalTime).String()
+	if field.Type() == reflect.TypeOf(model.LocalTime{}) {
+		timeStr := field.Interface().(model.LocalTime).String()
 		// 0001-01-01 00:00:00 是 go 中 time.Time 类型的空值
 		// 这里返回 Nil 则会被 validator 判定为空值，而无法通过 `binding:"required"` 规则
 		if timeStr == "0001-01-01 00:00:00" {

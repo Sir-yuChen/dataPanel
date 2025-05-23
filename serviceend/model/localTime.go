@@ -1,7 +1,8 @@
-package utils
+package model
 
 import (
 	"database/sql/driver"
+	"fmt"
 	"time"
 )
 
@@ -37,9 +38,34 @@ func (t LocalTime) Value() (driver.Value, error) {
 }
 
 func (t *LocalTime) Scan(v interface{}) error {
-	tTime, _ := time.Parse("2006-01-02 15:04:05 +0800 CST", v.(time.Time).String())
-	*t = LocalTime(tTime)
-	return nil
+	if v == nil {
+		*t = LocalTime(time.Time{}) // 处理 NULL 值
+		return nil
+	}
+	// 类型安全转换
+	switch vt := v.(type) {
+	case time.Time:
+		*t = LocalTime(vt)
+		return nil
+	case []byte:
+		// 处理数据库驱动返回的字节流（如 MySQL 的 DATETIME）
+		parsedTime, err := time.Parse(TimeFormat, string(vt))
+		if err != nil {
+			return fmt.Errorf("parsing time from bytes: %w", err)
+		}
+		*t = LocalTime(parsedTime)
+		return nil
+	case string:
+		// 处理字符串类型输入
+		parsedTime, err := time.Parse(TimeFormat, vt)
+		if err != nil {
+			return fmt.Errorf("parsing time from string: %w", err)
+		}
+		*t = LocalTime(parsedTime)
+		return nil
+	default:
+		return fmt.Errorf("unsupported type: %T", v)
+	}
 }
 
 func (t LocalTime) String() string {

@@ -1,5 +1,5 @@
 import useStore from '@/hooks/useStore';
-import { Input, Select } from 'antd';
+import {Button, Input, Select} from 'antd';
 import { useState } from 'react';
 import './index.css';
 
@@ -31,14 +31,12 @@ const Home = () => {
         // setLoading(false);
     };
 
-
     return (
         <>
             <div className="home_all">
                 {/* 搜索框 居中 */}
                 <div className="home_search">
                     <Search addonBefore={selectSearchBefore} placeholder="请输入搜索关键字" enterButton="搜索" size="large" loading={loading} onSearch={onSearch} />
-
                 </div>
                 {/* 搜索结果展示 */}
             </div>

@@ -9,6 +9,7 @@ import (
 	"dataPanel/serviceend/utils"
 	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net"
 	"net/http"
 	"os"
@@ -40,6 +41,8 @@ func (a *App) load() {
 	//1.加载读取配置文件内容
 	global.GavVp = Viper() // 初始化Viper 读取yaml配置文件
 	InitZap()
+	//数据库连接 默认加载userConfig.db
+	InitDB("")
 	//参数初始化校验翻译器
 	InitTrans("zh")
 	//路由配置
@@ -50,41 +53,6 @@ func (a *App) load() {
 		Handler: engine,
 	}
 	a.Handler = engine.Handler()
-}
-
-// 数据加载 todo
-func (a *App) InitLoadData(dataType string) {
-	msg := model.MessageDialogModel{
-		Content:    "开始加载资源文件...",
-		DialogType: "info",
-	}
-	runtime.EventsEmit(a.ctx, "messageDialogs", msg)
-	//判断是否初次打开应用 如果不存在./dataPanel/data/ 目录则默认为初次打开，否则为非初次打开
-	if ok, _ := utils.PathExists(global.GvaConfig.System.DbPath); !ok {
-		//发起前端提示窗
-		msg.Content = "数据加载中..."
-		runtime.EventsEmit(a.ctx, "messageDialogs", msg)
-		if loaded, err := utils.GetLoadingData().Loaded(); err != nil {
-			global.GvaLog.Error("加载数据失败", zap.Error(err))
-			msg.Content = "加载数据失败,请在设置中手动触发..."
-			msg.DialogType = "error"
-			msg.Duration = 3
-			runtime.EventsEmit(a.ctx, "messageDialogs", msg)
-		} else {
-			//数据加载成功，提示用户
-			if loaded {
-				msg.Content = "数据加载成功,请稍后.."
-				msg.DialogType = "success"
-				runtime.EventsEmit(a.ctx, "messageDialogs", msg)
-			} else {
-				//数据加载失败，提示用户
-				msg.Content = "加载数据失败,请在设置中手动触发..."
-				msg.DialogType = "error"
-				msg.Duration = 3
-				runtime.EventsEmit(a.ctx, "messageDialogs", msg)
-			}
-		}
-	}
 }
 
 // InitZap 初始化日志
@@ -119,26 +87,10 @@ func (a *App) SetCtx(ctx context.Context) *App {
 // Startup wails 生命周期
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	//设置状态栏菜单
-	InitSystray(func() {
-		mainMenuItem := systray.AddMenuItem("主页面", "显示主页面")
-		mainMenuItem.Click(func() {
-			runtime.WindowShow(ctx)
-		})
-		hide := systray.AddMenuItem("隐藏", "隐藏应用程序")
-		hide.Click(func() {
-			runtime.WindowHide(a.ctx)
-		})
-		systray.AddSeparator()
-		quitMenuItem := systray.AddMenuItem("退出", "退出程序")
-		quitMenuItem.Click(func() {
-			a.Shutdown(a.ctx)
-			os.Exit(0)
-		})
-	})
+	//订阅全局消息提示事件
+	go startMessageBusGoroutine(a.ctx)
 	//启动本地服务
 	go func() {
-		global.GvaLog.Info("启动本地后台服务", zap.Any("Addr", a.srv.Addr))
 		// 服务连接
 		if err := a.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			var opError *net.OpError
@@ -159,27 +111,91 @@ func (a *App) Startup(ctx context.Context) {
 			global.GvaLog.Error("后台服务启动异常", zap.Error(err))
 			os.Exit(-1)
 		}
+		global.GvaLog.Info("dataPanel后台服务启动成功", zap.Any("监听端口", a.srv.Addr))
+	}()
+	//设置状态栏菜单
+	go func() {
+		InitSystray(func() {
+			mainMenuItem := systray.AddMenuItem("主页面", "显示主页面")
+			mainMenuItem.Click(func() {
+				runtime.WindowShow(ctx)
+			})
+			hide := systray.AddMenuItem("隐藏", "隐藏应用程序")
+			hide.Click(func() {
+				runtime.WindowHide(a.ctx)
+			})
+			systray.AddSeparator()
+			quitMenuItem := systray.AddMenuItem("退出", "退出程序")
+			quitMenuItem.Click(func() {
+				a.Shutdown(a.ctx)
+				os.Exit(0)
+			})
+		})
 	}()
 }
 
+// startMessageBusGoroutine 启动一个后台goroutine用于监听消息总线
+func startMessageBusGoroutine(ctx context.Context) {
+	bus := utils.NewMessageBus()
+	ch := make(chan model.MessageDialogModel, 1000) // 带缓冲的通道
+	bus.Subscribe("message", ch)
+	go func() {
+		defer func() {
+			bus.Unsubscribe("message", ch)
+			close(ch)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				global.GvaLog.Info("消息监听器退出")
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					global.GvaLog.Info("messageDialogs 消息提示读取失败", zap.Any("message", msg))
+					return
+				}
+				runtime.EventsEmit(ctx, "messageDialogs", msg)
+			}
+		}
+	}()
+}
 func (a *App) Shutdown(ctx context.Context) {
 	ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// 程序关闭前，释放数据库连接
+	defer func() {
+		if global.GvaSqliteDb.DB != nil {
+			db, _ := global.GvaSqliteDb.DB()
+			db.Close()
+		}
+	}()
 	if err := a.srv.Shutdown(ctx2); err != nil {
 		global.GvaLog.Error("后台服务关闭异常", zap.Error(err))
 	}
+
 }
 
-// DomReady is called after the front-end dom has been loaded
-// domReady 在前端Dom加载完毕后调用
+// DomReady domReady 在前端Dom加载完毕后调用
 func (a *App) DomReady(ctx context.Context) {
-	//配置文件和数据检查，如果不存在./dataPanel/data/ 目录则默认为初次打开，否则为非初次打开
-	if ok, _ := utils.PathExists(global.GvaConfig.System.DbPath); !ok {
-		//调起前端加载数据弹窗
-		runtime.EventsEmit(ctx, "loadData", "加载数据")
+	var setting *model.AppSetting
+	query := global.GvaSqliteDb.Model(&model.AppSetting{}).Unscoped().
+		Where("key = ? AND is_del = ? AND value = ?",
+			"app_configuration_completed", 0, 1)
+
+	if err := query.First(&setting).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			runtime.EventsEmit(ctx, "loadData", "加载数据")
+			return
+		}
+		global.GvaLog.Error("查询app_configuration_completed异常", zap.Error(err))
+		msg := model.MessageDialogModel{
+			Content:    fmt.Sprintf("应用加载数据异常(%s)", err),
+			DialogType: "error",
+		}
+		runtime.EventsEmit(ctx, "messageDialogs", msg)
+		return
 	}
 }
-
 func (a *App) BeforeClose(ctx context.Context) bool {
 	dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:         runtime.QuestionDialog,

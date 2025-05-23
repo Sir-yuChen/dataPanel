@@ -67,7 +67,7 @@ func InitTrans(locale string) {
 		default:
 			zhTranslations.RegisterDefaultTranslations(v, trans)
 		}
-		global.GvaTrans = &trans
+		global.GvaTrans = trans
 		return
 	}
 	return

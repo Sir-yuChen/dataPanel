@@ -23,6 +23,7 @@ export namespace configModel {
 	    addr: number;
 	    "db-type": string;
 	    "db-path": string;
+	    "db-table-prefix": string;
 	    "temp-path": string;
 	
 	    static createFrom(source: any = {}) {
@@ -36,6 +37,7 @@ export namespace configModel {
 	        this.addr = source["addr"];
 	        this["db-type"] = source["db-type"];
 	        this["db-path"] = source["db-path"];
+	        this["db-table-prefix"] = source["db-table-prefix"];
 	        this["temp-path"] = source["temp-path"];
 	    }
 	}

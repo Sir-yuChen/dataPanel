@@ -13,4 +13,5 @@ type RouterInf interface {
 
 func SetupRouter(g *gin.RouterGroup) {
 	controller.NewHelloController().SetupRouter(g)
+	controller.NewCommonController().SetupRouter(g)
 }

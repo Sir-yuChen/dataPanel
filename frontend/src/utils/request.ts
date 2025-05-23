@@ -1,86 +1,99 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { apiBaseURL } from '@/config';
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import {apiBaseURL} from '@/config';
+import axios, {AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig} from 'axios';
+import {message} from "antd";
 
 interface ApiResponse<T> {
     code: number;
-    message: string; // 用一个更具体的字段来描述错误信息
+    msg: string;
     data: T;
 }
-// const showMessage = useShowMessage()
-export class Request {
 
+const createRequest = (config?: AxiosRequestConfig) => {
+    const defaultConfig: AxiosRequestConfig = {
+        baseURL: apiBaseURL,
+        timeout: 6000
+    };
 
-    private instance: AxiosInstance;
-    private defaultConfig: AxiosRequestConfig = { baseURL: apiBaseURL, timeout: 6000 };
+    const instance: AxiosInstance = axios.create({
+        ...defaultConfig,
+        ...config
+    });
 
-    constructor(config: AxiosRequestConfig) {
-        const mergedConfig = { ...this.defaultConfig, ...config }; // 使用浅拷贝
-        this.instance = axios.create(mergedConfig);
-
-        this.instance.interceptors.request.use(
-            (config: InternalAxiosRequestConfig) => {
-                // 使用一个独立的方法来获取 token  v1版本暂不支持
-                const token = this.getToken();
-                if (token) {
-                    config.headers.Authorization = token;
-                }
-                return config;
-            },
-            (error: AxiosError) => {
-                return Promise.reject(error);
+    // 请求拦截器
+    instance.interceptors.request.use(
+        (config: InternalAxiosRequestConfig) => {
+            const token = getToken();
+            if (token) {
+                config.headers.Authorization = token;
             }
-        );
+            return config;
+        },
+        (error: AxiosError) => Promise.reject(error)
+    );
 
-        this.instance.interceptors.response.use(
-            (response: AxiosResponse) => {
-                return response;
-            },
-            (error: AxiosError) => {
-                const apiError = error.response?.data; // 修改到更具体的错误信息字段
-                // showMessage('error', error.response?.data)
-                return Promise.reject(apiError);
+    // 响应拦截器
+    instance.interceptors.response.use(
+        (response: AxiosResponse) => {
+            if (response.data.code !== 200) {
+                message.error(response.data.msg)
             }
-        );
-    }
+            message.success(response.data.msg)
+            return response;
+        },
+        (error: AxiosError) => {
+            const apiError = error.response?.data;
+            return Promise.reject(apiError);
+        }
+    );
 
-    public request(config: AxiosRequestConfig): Promise<any> {
-        return this.instance.request(config);
-    }
-
-    public get<TResponse = any>(
-        url: string,
-        config?: AxiosRequestConfig
-    ): Promise<AxiosResponse<ApiResponse<TResponse>>> {
-        return this.instance.get(url, config);
-    }
-
-    public post<TRequest = any, TResponse = any>(
-        url: string,
-        data?: TRequest,
-        config?: AxiosRequestConfig
-    ): Promise<AxiosResponse<ApiResponse<TResponse>>> {
-        return this.instance.post(url, data, config);
-    }
-
-    public put<TRequest = any, TResponse = any>(
-        url: string,
-        data?: TRequest,
-        config?: AxiosRequestConfig
-    ): Promise<AxiosResponse<ApiResponse<TResponse>>> {
-        return this.instance.put(url, data, config);
-    }
-
-    public delete<TResponse = any>(
-        url: string,
-        config?: AxiosRequestConfig
-    ): Promise<AxiosResponse<ApiResponse<TResponse>>> {
-        return this.instance.delete(url, config);
-    }
-
-    private getToken(): string | null {
+    // Token 获取函数
+    const getToken = (): string | null => {
         return JSON.parse(sessionStorage.getItem('authToken') || 'null');
-    }
-}
+    };
 
-export default new Request({});
+    // HTTP 方法
+    const request = (config: AxiosRequestConfig): Promise<any> => {
+        return instance.request(config);
+    };
+
+    const get = <TResponse = any>(
+        url: string,
+        config?: AxiosRequestConfig
+    ): Promise<AxiosResponse<ApiResponse<TResponse>>> => {
+        return instance.get(url, config);
+    };
+
+    const post = <TRequest = any, TResponse = any>(
+        url: string,
+        data?: TRequest,
+        config?: AxiosRequestConfig
+    ): Promise<AxiosResponse<ApiResponse<TResponse>>> => {
+        return instance.post(url, data, config);
+    };
+
+    const put = <TRequest = any, TResponse = any>(
+        url: string,
+        data?: TRequest,
+        config?: AxiosRequestConfig
+    ): Promise<AxiosResponse<ApiResponse<TResponse>>> => {
+        return instance.put(url, data, config);
+    };
+
+    const del = <TResponse = any>(
+        url: string,
+        config?: AxiosRequestConfig
+    ): Promise<AxiosResponse<ApiResponse<TResponse>>> => {
+        return instance.delete(url, config);
+    };
+
+    return {
+        request,
+        get,
+        post,
+        put,
+        delete: del
+    };
+};
+
+export default createRequest({});

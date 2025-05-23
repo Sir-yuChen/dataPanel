@@ -28,6 +28,7 @@ export class GlobalStore {
         this.token = "";
         this.loginStatus = "N";
     }
+
     setIsDataLoadedText(text: string) {
         this.isDataLoadedText = text;
     }

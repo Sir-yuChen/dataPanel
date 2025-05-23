@@ -3,8 +3,9 @@ system:
   applicationName: "dataPanel" #应用名
   env: "public" # Change to "develop" to skip authentication for development mode
   addr: 8089
-  db-type: "bolt"
-  db-path: "./dataPanel/data/"
+  db-type: "sqlite"
+  db-path: "./dataPanel/data/dataPanel.db" #注意目录必须存在否则无法创建
+  db-table-prefix: "stock_"
   temp-path: "./temp/"
 
 # zap logger configuration

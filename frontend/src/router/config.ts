@@ -1,4 +1,6 @@
-import { lazy } from 'react';
+import {lazy} from 'react';
+import Home from "@/pages/home";
+import Setting from "@/pages/setting";
 
 export interface IRouter {
     name?: string;
@@ -25,12 +27,16 @@ export const router: Array<IRouter> = [
     //     ]
     // },
     {
+        path: '/',
+        component: lazy(() => import('@/pages/home'))
+    },
+    {
         path: '/home',
         component: lazy(() => import('@/pages/home'))
     },
     {
         path: '/setting',
-        component: lazy(() => import('@/pages/setting'))
+        component: Setting
     },
     //最低优先级，路由匹配，404
     {

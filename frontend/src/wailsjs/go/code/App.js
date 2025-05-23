@@ -6,10 +6,6 @@ export function Ctx() {
   return window['go']['code']['App']['Ctx']();
 }
 
-export function InitLoadData(arg1) {
-  return window['go']['code']['App']['InitLoadData'](arg1);
-}
-
 export function OnSecondInstanceLaunch(arg1) {
   return window['go']['code']['App']['OnSecondInstanceLaunch'](arg1);
 }
