@@ -4,6 +4,7 @@ import (
 	"context"
 	"dataPanel/serviceend/global"
 	"dataPanel/serviceend/model"
+	"dataPanel/serviceend/model/stock"
 	"errors"
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -70,7 +71,18 @@ func GetDB() *gorm.DB {
 }
 
 func IntCreateTable(db *gorm.DB) error {
-	return db.AutoMigrate(&model.AppSetting{})
+	//自动创建表结构
+	models := []interface{}{
+		&model.AppSetting{},
+		&stock.StockBasic{},
+	}
+
+	for _, m := range models {
+		if err := db.AutoMigrate(m); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type GormLogger struct {

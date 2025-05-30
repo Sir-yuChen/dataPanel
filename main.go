@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"dataPanel/serviceend/code"
 	"dataPanel/serviceend/global"
-	"dataPanel/serviceend/wails"
 	"errors"
 	"fmt"
 	"go.uber.org/zap"
@@ -15,9 +14,9 @@ import (
 )
 
 func main() {
-	wails.Run()
+	//wails.Run()
 	//单独启动后端项目
-	//loadConfig()
+	loadConfig()
 }
 
 func loadConfig() {

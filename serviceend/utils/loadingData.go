@@ -5,13 +5,18 @@ import (
 	"dataPanel/serviceend/common"
 	"dataPanel/serviceend/global"
 	"dataPanel/serviceend/model"
+	"dataPanel/serviceend/utils/crawler"
 	"encoding/json"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
+	"github.com/chromedp/chromedp"
+	"github.com/duke-git/lancet/v2/strutil"
 	"gorm.io/gorm"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -74,6 +79,64 @@ func (d *LoadingData) Loaded() (bool, error) {
 
 	return true, nil
 }
+
+// LoadingStockBase 股票基础数据获取
+func (d *LoadingData) LoadingStockBase(types []string) (bool, error) {
+	const (
+		selectorPrefix = "div#hqDetails table"
+		userAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0"
+	)
+
+	// 初始化爬虫实例
+	crawler := crawler.NewCrawler(
+		"sina-stock",
+		[]chromedp.ExecAllocatorOption{
+			chromedp.UserAgent(userAgent),
+		},
+	).WithTimeout(60*time.Second). // 设置单次操作超时
+					WithCircuitBreaker(3, 90*time.Second) // 3次失败熔断，冷却90秒
+
+	// 构造动态URL
+	url := fmt.Sprintf("https://finance.sina.com.cn/realstock/company/%s/nc.shtml", "sz002906")
+
+	// 单次请求获取数据
+	html, err := crawler.GetHTML(url, selectorPrefix)
+	if err != nil {
+		global.GvaLog.Warn("股票数据获取失败", zap.Error(err))
+		return false, err
+	}
+	// 解析HTML内容
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		global.GvaLog.Error("HTML解析失败",
+			zap.Error(err))
+		return false, err
+	}
+
+	// 提取关键数据
+	priceElem := doc.Find(" div#price").First()
+	timeElem := doc.Find(" div#hqTime").First()
+
+	priceText := strutil.RemoveWhiteSpace(priceElem.Text(), true)
+	timeText := strutil.RemoveWhiteSpace(timeElem.Text(), true)
+
+	// 数据完整性校验
+	if priceElem.Length() == 0 || timeElem.Length() == 0 {
+		global.GvaLog.Warn("关键元素缺失",
+			zap.String("priceElement", priceElem.Text()),
+			zap.String("timeElement", timeElem.Text()))
+		return false, fmt.Errorf("关键元素缺失，请重试")
+	} else {
+		// 记录有效数据
+		global.GvaLog.Info("股票数据获取成功",
+			zap.String("price", priceText),
+			zap.String("update_time", timeText))
+	}
+
+	return true, nil
+}
+
+// LoadingConfig 配置文件加载
 func (d *LoadingData) LoadingConfig() (bool, error) {
 	configMap := make(map[string]interface{})
 	if err := d.pullConfig(); err != nil {
@@ -182,7 +245,6 @@ func (d *LoadingData) createAppSetting(tx *gorm.DB, key string, value interface{
 	return &setting, nil
 }
 
-// 辅助函数组
 func getChildMap(value interface{}) (map[string]interface{}, bool) {
 	vMap, ok := value.(map[string]interface{})
 	if !ok {
@@ -231,7 +293,7 @@ func parseSliceMap(values interface{}) model.SliceMap {
 	return result
 }
 
-// 辅助函数：创建完成标记
+// 创建完成标记
 func createCompletionMarker(tx *gorm.DB) error {
 	marker := model.AppSetting{
 		Key:    "app_configuration_completed",
@@ -244,16 +306,6 @@ func createCompletionMarker(tx *gorm.DB) error {
 		return fmt.Errorf("完成标记创建失败: %w", err)
 	}
 	return nil
-}
-
-func (d *LoadingData) LoadingStockBase(types []string) (bool, error) {
-	/*
-		从userconfig 中获取数据库接口最新连接
-		参数：如果数组参数all 加载全部股票基础数据，否则只加载指定类型的股票基础数据
-	*/
-	//第一个获取股票基础数据配置
-
-	return true, nil
 }
 
 func (d *LoadingData) pullConfig() error {
