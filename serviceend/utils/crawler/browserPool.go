@@ -571,11 +571,8 @@ func getBaseAllocatorOptions() []chromedp.ExecAllocatorOption {
 		chromedp.Flag("enable-precise-memory-info", true),
 		chromedp.Flag("enable-memory-info", true),
 		chromedp.Flag("disable-features", "site-per-process,Translate,BlinkGenPropertyTrees,OutOfBlinkCors"), // 调整禁用特性
-		// 新增内存分析专用配置
-		chromedp.Flag("enable-memory-benchmarking", true),
-		chromedp.Flag("disable-memory-reducer", true),
 		// 允许使用共享内存
-		chromedp.Flag("disable-dev-shm-usage", false),
+		chromedp.Flag("disable-dev-shm-usage", true),
 	}
 	return options
 }
