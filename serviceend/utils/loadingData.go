@@ -88,51 +88,54 @@ func (d *LoadingData) LoadingStockBase(types []string) (bool, error) {
 	)
 
 	// 初始化爬虫实例
-	crawler := crawler.NewCrawler(
-		"sina-stock",
-		[]chromedp.ExecAllocatorOption{
-			chromedp.UserAgent(userAgent),
-		},
-	).WithTimeout(60*time.Second). // 设置单次操作超时
-					WithCircuitBreaker(3, 90*time.Second) // 3次失败熔断，冷却90秒
+	crawler := crawler.NewCrawler().WithOpts([]chromedp.ExecAllocatorOption{chromedp.UserAgent(userAgent)}).WithPoolKey("sina-crawler")
 
-	// 构造动态URL
-	url := fmt.Sprintf("https://finance.sina.com.cn/realstock/company/%s/nc.shtml", "sz002906")
+	//创建一个集合存储股代码sz002906,sh601318,sz002594
+	stockCodes := []string{"sz002906", "sh601318", "sz002594", "sz000725"}
+	//循环stockCodes,并日志记录每次获取数据耗时
+	for _, stockCode := range stockCodes {
+		startTime := time.Now()
+		// 构造动态URL
+		url := fmt.Sprintf("https://finance.sina.com.cn/realstock/company/%s/nc.shtml", stockCode)
 
-	// 单次请求获取数据
-	html, err := crawler.GetHTML(url, selectorPrefix)
-	if err != nil {
-		global.GvaLog.Warn("股票数据获取失败", zap.Error(err))
-		return false, err
+		// 单次请求获取数据
+		html, err := crawler.GetHTML(url, selectorPrefix)
+		if err != nil {
+			global.GvaLog.Warn("数据获取失败", zap.Error(err))
+			return false, err
+		}
+		// 解析HTML内容
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			global.GvaLog.Error("HTML解析失败",
+				zap.Error(err))
+			return false, err
+		}
+
+		// 提取关键数据
+		priceElem := doc.Find(" div#price").First()
+		timeElem := doc.Find(" div#hqTime").First()
+		priceText := strutil.RemoveWhiteSpace(priceElem.Text(), true)
+		timeText := strutil.RemoveWhiteSpace(timeElem.Text(), true)
+
+		// 数据完整性校验
+		if priceElem.Length() == 0 || timeElem.Length() == 0 {
+			global.GvaLog.Warn("关键元素缺失",
+				zap.String("priceElement", priceElem.Text()),
+				zap.String("timeElement", timeElem.Text()))
+			return false, fmt.Errorf("关键元素缺失，请重试")
+		} else {
+			// 记录有效数据
+			global.GvaLog.Info("数据获取成功",
+				zap.String("price", priceText),
+				zap.String("update_time", timeText))
+		}
+		//耗时记录
+		global.GvaLog.Info("数据获取耗时",
+			zap.String("stockCode", stockCode),
+			zap.Duration("duration", time.Since(startTime)))
+
 	}
-	// 解析HTML内容
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		global.GvaLog.Error("HTML解析失败",
-			zap.Error(err))
-		return false, err
-	}
-
-	// 提取关键数据
-	priceElem := doc.Find(" div#price").First()
-	timeElem := doc.Find(" div#hqTime").First()
-
-	priceText := strutil.RemoveWhiteSpace(priceElem.Text(), true)
-	timeText := strutil.RemoveWhiteSpace(timeElem.Text(), true)
-
-	// 数据完整性校验
-	if priceElem.Length() == 0 || timeElem.Length() == 0 {
-		global.GvaLog.Warn("关键元素缺失",
-			zap.String("priceElement", priceElem.Text()),
-			zap.String("timeElement", timeElem.Text()))
-		return false, fmt.Errorf("关键元素缺失，请重试")
-	} else {
-		// 记录有效数据
-		global.GvaLog.Info("股票数据获取成功",
-			zap.String("price", priceText),
-			zap.String("update_time", timeText))
-	}
-
 	return true, nil
 }
 

@@ -6,6 +6,7 @@ toolchain go1.24.2
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/chromedp/cdproto v0.0.0-20250525213546-24735cbed6af
 	github.com/chromedp/chromedp v0.13.6
 	github.com/duke-git/lancet/v2 v2.3.5
 	github.com/energye/systray v1.0.2
@@ -29,7 +30,6 @@ require (
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/chromedp/cdproto v0.0.0-20250525213546-24735cbed6af // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect

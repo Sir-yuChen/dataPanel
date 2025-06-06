@@ -7,6 +7,7 @@ import (
 	"dataPanel/serviceend/model"
 	"dataPanel/serviceend/model/configModel"
 	"dataPanel/serviceend/utils"
+	"dataPanel/serviceend/utils/crawler"
 	"errors"
 	"fmt"
 	"gorm.io/gorm"
@@ -162,6 +163,8 @@ func startMessageBusGoroutine(ctx context.Context) {
 func (a *App) Shutdown(ctx context.Context) {
 	ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	//关闭浏览器池
+	defer crawler.GetBrowserPool().Close()
 	// 程序关闭前，释放数据库连接
 	defer func() {
 		if global.GvaSqliteDb.DB != nil {

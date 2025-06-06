@@ -3,47 +3,55 @@ package crawler
 import (
 	"context"
 	"dataPanel/serviceend/global"
+	"errors"
 	"fmt"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"go.uber.org/zap"
+	"math"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const (
-	defaultPoolSize     = 10
-	browserKeepAlive    = 3 * time.Minute
-	poolCleanInterval   = 30 * time.Second
-	defaultMinSize      = 2
-	defaultScaleFactor  = 1.5
-	healthCheckInterval = 15 * time.Second
+	defaultPoolSize    = 20
+	browserKeepAlive   = 15 * time.Minute
+	poolCleanInterval  = 1 * time.Minute
+	defaultMinSize     = 2
+	defaultScaleFactor = 1.5
+	defaultTimeout     = 60 * time.Second
 )
 
 type BrowserContext struct {
 	Ctx      context.Context
+	Key      string
 	Cancel   context.CancelFunc
-	Valid    bool
-	LastUsed time.Time
+	Valid    atomic.Bool
+	LastUsed atomic.Value // 存储time.Time
+	Cleaning atomic.Bool  // 清理状态标记
 }
 
+// BrowserPool 浏览器实例池管理结构
+// 使用缓冲通道+sync.Map混合模式实现资源池：
+// - 通道用于快速调度可用实例
+// - sync.Map用于全生命周期跟踪
 type BrowserPool struct {
-	pool        chan *BrowserContext
-	opts        []chromedp.ExecAllocatorOption
-	mu          sync.RWMutex
-	activeCnt   int
-	minSize     int
-	maxSize     int
-	createdCnt  int64
-	reusedCnt   int64
-	scaleFactor float64
-	pendingReqs int32
-	scaleMutex  sync.Mutex
+	pool        chan *BrowserContext           // 缓冲池（快速调度）
+	opts        []chromedp.ExecAllocatorOption // 浏览器启动配置
+	minSize     atomic.Int32                   // 最小池容量
+	maxSize     atomic.Int32                   // 最大池容量
+	poolMu      sync.Mutex                     // 保护pool通道操作
+	scaleFactor atomic.Uint64                  // 动态扩容因子
+	pendingReqs atomic.Int32                   // 等待队列长度
+	metrics     *PoolMetrics                   // 新增指标实例
+
 }
 
 var (
-	pools               = make(map[string]*BrowserPool)
-	poolMutex           sync.RWMutex
+	instance            *BrowserPool // 单例实例
+	once                sync.Once    // 单例控制
 	antiDetectionScript = `
 		Object.defineProperty(navigator, 'plugins', {
 			get: () => [1, 2, 3],
@@ -59,240 +67,218 @@ var (
 	`
 )
 
-// 获取浏览器池
-func GetBrowserPool(poolKey string, opts []chromedp.ExecAllocatorOption) (*BrowserPool, error) {
-	poolMutex.Lock()
-	defer poolMutex.Unlock()
-
-	if pool, exists := pools[poolKey]; exists {
-		return pool, nil
-	}
-
-	baseOpts := getBaseAllocatorOptions()
-	fullOpts := append(baseOpts, opts...)
-
-	pool := &BrowserPool{
-		pool:        make(chan *BrowserContext, defaultMinSize),
-		opts:        fullOpts,
-		maxSize:     defaultPoolSize,
-		minSize:     defaultMinSize,
-		scaleFactor: defaultScaleFactor,
-	}
-
-	go pool.startPoolMaintenance()
-	// 新增监控日志协程
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			metrics := pool.Metrics()
-			global.GvaLog.Info("浏览器池监控指标",
-				zap.String("浏览器池KEY", poolKey),
-				zap.Any("指标", metrics),
-			)
+func GetBrowserPool() *BrowserPool {
+	once.Do(func() {
+		metrics := NewPoolMetrics(1 * time.Minute)
+		pool := &BrowserPool{
+			pool:    make(chan *BrowserContext, defaultMinSize),
+			opts:    getBaseAllocatorOptions(),
+			metrics: metrics,
 		}
+		pool.minSize.Store(defaultMinSize)
+		pool.maxSize.Store(defaultPoolSize)
+		pool.scaleFactor.Store(math.Float64bits(defaultScaleFactor))
+		pool.metrics.ScaleFactor.Store(math.Float64bits(defaultScaleFactor))
+		go pool.startPoolMaintenance()
+		go metrics.Start()
+		instance = pool
+	})
+	return instance
+}
+
+// Acquire 获取浏览器实例（基于key的智能调度）
+func (bp *BrowserPool) Acquire(key string, timeout time.Duration, opts ...chromedp.ExecAllocatorOption) (*BrowserContext, error) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start).Nanoseconds()
+		bp.metrics.AcquireTime.Add(duration)
+		updateMax(&bp.metrics.MaxAcquireTime, duration)
 	}()
 
-	pools[poolKey] = pool
-	return pool, nil
-}
-
-// 动态扩容判断
-func (bp *BrowserPool) shouldScaleUp() bool {
-	bp.scaleMutex.Lock()
-	defer bp.scaleMutex.Unlock()
-
-	return len(bp.pool) == 0 &&
-		bp.activeCnt >= bp.maxSize &&
-		atomic.LoadInt32(&bp.pendingReqs) > int32(bp.maxSize/2)
-}
-
-// 扩容执行逻辑
-func (bp *BrowserPool) scaleUp() {
-	bp.scaleMutex.Lock()
-	defer bp.scaleMutex.Unlock()
-
-	if bp.scaleFactor > 2.0 {
-		global.GvaLog.Warn("缩放因子过大已自动修正",
-			zap.Float64("原值", bp.scaleFactor))
-		bp.scaleFactor = 2.0
+	bp.pendingReqs.Add(1)
+	defer bp.pendingReqs.Add(-1)
+	var bc *BrowserContext
+	// 优先查找同key的可用实例
+	if bc = bp.findMatchingInstance(key); bc != nil {
+		bp.metrics.Reused.Add(1)
+		bc.LastUsed.Store(time.Now())
+		bp.setTimeout(bc, timeout)
+		return bc, nil
 	}
 
-	newMax := int(float64(bp.maxSize) * bp.scaleFactor)
-	if newMax > bp.maxSize*2 {
-		newMax = bp.maxSize * 2
-	}
-
-	for i := bp.maxSize; i < newMax; i++ {
-		bc, err := bp.createBrowserContext()
-		if err != nil {
-			global.GvaLog.Error("实例创建失败", zap.Error(err))
-			continue
-		}
-		select {
-		case bp.pool <- bc:
-			bp.activeCnt++
-		default:
-			bc.Cancel()
-		}
-	}
-	bp.maxSize = newMax
-}
-
-// 获取浏览器上下文
-func (bp *BrowserPool) Acquire() (*BrowserContext, error) {
-	atomic.AddInt32(&bp.pendingReqs, 1)
-	defer atomic.AddInt32(&bp.pendingReqs, -1)
-
-	if bp.shouldScaleUp() {
-		go bp.scaleUp()
-	}
-
-	select {
-	case bc := <-bp.pool:
-		bp.mu.Lock()
-		defer bp.mu.Unlock()
-		if bc.isValid() {
-			atomic.AddInt64(&bp.reusedCnt, 1)
-			bc.LastUsed = time.Now()
+	if opts != nil && len(opts) > 0 && bc == nil {
+		bc, err := bp.createBrowserContext(key, opts...)
+		if err == nil && bc != nil {
+			bp.setTimeout(bc, timeout)
 			return bc, nil
-		}
-		bc.Cancel()
-		bp.activeCnt--
-	default:
-		if bp.activeCnt < bp.maxSize {
-			const maxRetries = 2
-			for i := 0; i < maxRetries; i++ {
-				browserContext, err := bp.createBrowserContext()
-				if err == nil {
-					bp.mu.Lock()
-					defer bp.mu.Unlock() //Possible resource leak, 'defer' is called in the 'for' loop
-					atomic.AddInt64(&bp.createdCnt, 1)
-					bp.activeCnt++
-					browserContext.LastUsed = time.Now()
-					select {
-					case bp.pool <- browserContext:
-						return browserContext, nil
-					default:
-						return browserContext, nil
-					}
-				}
-				if i == maxRetries-1 {
-					global.GvaLog.Error("浏览器实例创建失败",
-						zap.Error(err),
-						zap.Int("retries", maxRetries))
-					return nil, err
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
+		} else {
+			global.GvaLog.Error("获得实例失败", zap.Error(err))
 		}
 	}
-	// Fallback 逻辑
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
-	return bp.createBrowserContext()
+	if bc == nil {
+		bc, err := bp.createBrowserContext(key, opts...)
+		if err == nil && bc != nil {
+			bp.setTimeout(bc, timeout)
+			return bc, nil
+		} else {
+			global.GvaLog.Error("获得实例失败", zap.Error(err))
+		}
+	}
+	return nil, fmt.Errorf("获取实例失败")
 }
 
-// 释放浏览器上下文
-func (bp *BrowserPool) Release(bc *BrowserContext) {
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
-
-	if !bc.Valid {
-		bc.Cancel()
-		bp.activeCnt--
-		return
+func (bp *BrowserPool) createBrowserContext(key string, opts ...chromedp.ExecAllocatorOption) (*BrowserContext, error) {
+	var allocCtx context.Context
+	var cancelAlloc func()
+	if opts != nil && len(opts) > 0 {
+		allocOpts := append(bp.opts, opts...)
+		allocCtx, cancelAlloc = chromedp.NewExecAllocator(context.Background(), allocOpts...)
+	} else {
+		allocCtx, cancelAlloc = chromedp.NewExecAllocator(context.Background(), bp.opts...)
 	}
-
-	bc.LastUsed = time.Now()
-
-	if err := chromedp.Run(bc.Ctx, chromedp.Navigate("about:blank")); err != nil {
-		bc.markInvalid()
-		bc.Cancel()
-		bp.activeCnt--
-		return
-	}
-
-	select {
-	case bp.pool <- bc:
-	default:
-		bc.Cancel()
-		bp.activeCnt--
-	}
-}
-
-// 创建浏览器上下文
-func (bp *BrowserPool) createBrowserContext() (*BrowserContext, error) {
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(
-		context.Background(),
-		append(
-			getBaseAllocatorOptions(),
-			chromedp.Flag("disable-notifications", true),
-			chromedp.Flag("no-sandbox", true),
-			chromedp.Flag("disable-3d-apis", false), // 已确认无效的flag
-		)...,
-	)
-
-	ctx, cancelCtx := chromedp.NewContext(allocCtx)
-
-	// 执行反检测脚本
+	ctx, cancelCtx := chromedp.NewContext(allocCtx, chromedp.WithLogf(global.GvaLog.Sugar().Infof))
 	if err := chromedp.Run(ctx,
 		chromedp.Evaluate(antiDetectionScript, nil),
 	); err != nil {
 		cancelCtx()
 		cancelAlloc()
-		return nil, fmt.Errorf("反检测初始化失败: %w", err)
+		return nil, fmt.Errorf("浏览器实例初始化失败: %w", err)
 	}
 
 	bc := &BrowserContext{
-		Ctx:      ctx,
-		Cancel:   func() { cancelCtx(); cancelAlloc() },
-		Valid:    true,
-		LastUsed: time.Now(),
+		Ctx:    ctx,
+		Key:    key,
+		Cancel: func() { cancelCtx(); cancelAlloc() },
 	}
-
-	go bp.monitorBrowserContext(bc)
+	bc.Valid.Store(true)
+	bc.LastUsed.Store(time.Now())
+	bp.metrics.Created.Add(1)
+	bp.metrics.Active.Add(1)
+	//创建完毕则执行一个空action列表，目的chromedp当前的API设计逻辑是只会在第一次调用Run()的时候创建headless-chrome进程
+	if err := chromedp.Run(bc.Ctx, make([]chromedp.Action, 0, 1)...); err != nil {
+		global.GvaLog.Error("浏览器实例预执行失败", zap.String("key", bc.Key), zap.Error(err))
+		return bc, nil
+	} else {
+		global.GvaLog.Info("浏览器实例预执行成功", zap.String("key", bc.Key))
+		return bc, nil
+	}
+	global.GvaLog.Info("创建浏览器实例成功", zap.String("key", bc.Key))
 	return bc, nil
 }
 
-// 上下文健康监控
-func (bp *BrowserPool) monitorBrowserContext(bc *BrowserContext) {
+func (bp *BrowserPool) Release(bc *BrowserContext) {
+	go bp.asyncRelease(bc) // 入口改为异步
+}
+
+func (bp *BrowserPool) asyncRelease(bc *BrowserContext) {
+	start := time.Now()
 	defer func() {
-		if r := recover(); r != nil {
-			global.GvaLog.Error("监控协程异常",
-				zap.Any("panic", r),
-				zap.Any("context", bc))
-		}
+		duration := time.Since(start).Nanoseconds()
+		bp.metrics.ReleaseTime.Add(duration)
+		updateMax(&bp.metrics.MaxReleaseTime, duration)
 	}()
-
-	ticker := time.NewTicker(healthCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if !bc.isValid() {
-				return
-			}
-			if err := chromedp.Run(bc.Ctx,
-				chromedp.Navigate("about:blank"),
-				chromedp.WaitVisible("body"),
-			); err != nil {
-				global.GvaLog.Warn("健康检查失败,当前实例已放弃",
-					zap.Error(err),
-					zap.Any("context", bc))
-				bc.markInvalid()
-				bp.activeCnt--
-				return
-			}
-			bc.LastUsed = time.Now()
-		case <-bc.Ctx.Done():
+	// 前置检查移出锁外
+	if !bc.Valid.Load() || errors.Is(bc.Ctx.Err(), context.Canceled) {
+		bp.destroyContext(bc)
+		global.GvaLog.Warn("释放浏览器前置检查,执行销毁",
+			zap.String("key", bc.Key), zap.Any("valid", bc.Valid.Load()),
+			zap.Error(bc.Ctx.Err()))
+		return
+	}
+	bp.poolMu.Lock()
+	defer bp.poolMu.Unlock()
+	if bc.Cleaning.Load() {
+		return // 避免重复清理
+	}
+	// 使用CAS保证状态标记原子性
+	if !bc.Cleaning.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		// 使用浏览器实例的上下文创建子上下文
+		cleanupCtx, cancel := context.WithTimeout(bc.Ctx, defaultTimeout)
+		defer cancel()
+		// 新增有效性检查
+		if errors.Is(cleanupCtx.Err(), context.Canceled) || !bc.Valid.Load() {
+			global.GvaLog.Warn("上下文已失效，跳过清理",
+				zap.String("key", bc.Key))
 			return
+		}
+		if err := chromedp.Run(cleanupCtx,
+			chromedp.Navigate("about:blank"),
+			network.ClearBrowserCache(),
+			network.ClearBrowserCookies(),
+		); err != nil && !errors.Is(err, context.Canceled) {
+			global.GvaLog.Warn("清理操作失败",
+				zap.String("key", bc.Key),
+				zap.Error(err))
+		}
+		bc.Cleaning.Store(false)
+	}()
+	// 增强入队逻辑
+	select {
+	case bp.pool <- bc:
+		bp.metrics.Reused.Add(1)
+		bc.LastUsed.Store(time.Now())
+	default:
+		currentCap := cap(bp.pool)
+		scaleFactor := int(math.Float64frombits(bp.scaleFactor.Load()))
+		newCap := currentCap * scaleFactor
+
+		// 容量保护逻辑
+		if newCap <= currentCap {
+			newCap = currentCap + 1
+		}
+		if newCap > int(bp.maxSize.Load()) {
+			newCap = int(bp.maxSize.Load())
+		}
+
+		if newCap > currentCap {
+			newPool := make(chan *BrowserContext, newCap)
+			close(bp.pool)
+			for len(bp.pool) > 0 {
+				select {
+				case ctx := <-bp.pool:
+					newPool <- ctx
+				default:
+					break
+				}
+			}
+			newPool <- bc
+			bp.pool = newPool
+		} else {
+			go bp.destroyContext(bc)
+			global.GvaLog.Info("通道已达到最大容量,放弃实例,执行销毁", zap.String("key", bc.Key))
 		}
 	}
 }
 
-// 池维护协程
+// 根据key查找匹配实例
+func (bp *BrowserPool) findMatchingInstance(key string) *BrowserContext {
+	bp.poolMu.Lock()
+	defer bp.poolMu.Unlock()
+
+	// 快速遍历通道中的实例
+	tempPool := make([]*BrowserContext, 0, len(bp.pool))
+	var found *BrowserContext
+	for i := 0; i < len(bp.pool); i++ {
+		bc := <-bp.pool
+		if bc != nil && bc.Key == key && bc.isValid() {
+			found = bc
+			break
+		}
+		tempPool = append(tempPool, bc)
+	}
+	// 重建通道
+	for _, bc := range tempPool {
+		if bc != nil {
+			bp.pool <- bc
+		}
+	}
+	return found
+}
+
+// 池维护协程,清理过期实例
 func (bp *BrowserPool) startPoolMaintenance() {
 	ticker := time.NewTicker(poolCleanInterval)
 	defer ticker.Stop()
@@ -304,91 +290,125 @@ func (bp *BrowserPool) startPoolMaintenance() {
 
 // 清理过期实例
 func (bp *BrowserPool) cleanExpiredInstances() {
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
+	var validContexts []*BrowserContext
+	bp.poolMu.Lock()
+	defer bp.poolMu.Unlock()
 
-	keepCount := bp.minSize
-	if keepCount < 1 {
-		keepCount = 1
-	}
-
-	for len(bp.pool) > keepCount {
+	// 快速清理通道中的过期实例
+	for {
 		select {
 		case bc := <-bp.pool:
-			if time.Since(bc.LastUsed) > browserKeepAlive || !bc.Valid {
-				bc.Cancel()
-				bp.activeCnt--
-				global.GvaLog.Warn("浏览器实例超时/无效,已被清除")
+			if bc.isValid() {
+				validContexts = append(validContexts, bc)
 			} else {
-				bp.pool <- bc
+				go bp.destroyContext(bc)
+				global.GvaLog.Warn("实例已过期,执行销毁",
+					zap.String("key", bc.Key))
 			}
 		default:
-			return
+			break
+		}
+		break
+	}
+
+	// 重新填充有效实例
+	for _, bc := range validContexts {
+		select {
+		case bp.pool <- bc:
+		default:
+			go bp.destroyContext(bc)
+			global.GvaLog.Warn("通道已满,放弃实例,并销毁",
+				zap.String("key", string(bc.Key)))
 		}
 	}
+}
+
+// 关闭浏览器池
+func (bp *BrowserPool) Close() {
+	global.GvaLog.Info("开始关闭浏览器池")
+	//遍历通道
+	for bc := range bp.pool {
+		if bc != nil {
+			go bp.destroyContext(bc)
+		}
+	}
+	global.GvaLog.Info("开始关闭浏览器池成功")
 }
 
 // 上下文有效性检查
 func (bc *BrowserContext) isValid() bool {
-	if !bc.Valid {
+	if !bc.Valid.Load() {
 		return false
 	}
+	// 双重检查上下文状态
 	select {
 	case <-bc.Ctx.Done():
-		bc.Valid = false
+		bc.Valid.Store(false)
 		return false
 	default:
-		return time.Since(bc.LastUsed) < browserKeepAlive
 	}
-}
-
-// 标记上下文失效
-func (bc *BrowserContext) markInvalid() {
-	bc.Valid = false
-	bc.Cancel()
-
-}
-
-// 池监控指标
-func (bp *BrowserPool) Metrics() map[string]interface{} {
-	validCount := 0
-	poolSize := len(bp.pool)
-
-	// 计算有效实例数
-	for i := 0; i < poolSize; i++ {
-		select {
-		case bc := <-bp.pool:
-			if bc.isValid() {
-				validCount++
-			}
-			bp.pool <- bc
-		default:
-			break
+	// 检查是否超时：如果设置超时时间，则正常检查，如果未设置超时时间则最后操作时间记录+浏览器最大存活时间小于等于当前时间，则标记为失效
+	if deadline, ok := bc.Ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < 100*time.Millisecond { // 提前失效保护
+			bc.Valid.Store(false)
+			global.GvaLog.Warn("实例已超时,已标记为失效",
+				zap.String("key", bc.Key))
+			return false
+		}
+	} else {
+		lastUsed := bc.LastUsed.Load().(time.Time)
+		if time.Since(lastUsed) > browserKeepAlive { // 1秒缓冲
+			bc.Valid.Store(false)
+			global.GvaLog.Warn("实例未设置超时时间,已超过最大存活时间,已标记为失效",
+				zap.String("key", bc.Key),
+				zap.Time("last_used", lastUsed),
+				zap.Duration("keep_alive", browserKeepAlive))
+			return false
 		}
 	}
-
-	return map[string]interface{}{
-		"总创建数":  atomic.LoadInt64(&bp.createdCnt),
-		"总复用数":  atomic.LoadInt64(&bp.reusedCnt),
-		"活跃实例数": bp.activeCnt,
-		"池容量":   cap(bp.pool),
-		"有效实例数": len(bp.pool),
-		"缩放因子":  bp.scaleFactor,
-		"健康率": float64(atomic.LoadInt64(&bp.reusedCnt)) /
-			float64(atomic.LoadInt64(&bp.createdCnt)+atomic.LoadInt64(&bp.reusedCnt)),
-		"等待请求": atomic.LoadInt32(&bp.pendingReqs),
-	}
+	return true
 }
 
-// 动态配置池参数
-func (bp *BrowserPool) Configure(minSize int, maxSize int, scaleFactor float64) {
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
+// 上下文销毁方法
+func (bp *BrowserPool) destroyContext(bc *BrowserContext) {
+	if bc == nil {
+		global.GvaLog.Error("实例销毁失败,实例为空")
+		return
+	}
+	// 记录销毁前的状态
+	global.GvaLog.Info("开始销毁浏览器实例",
+		zap.String("key", bc.Key),
+		zap.Bool("valid", bc.Valid.Load()),
+		zap.Error(bc.Ctx.Err()))
 
-	bp.minSize = minSize
-	bp.maxSize = maxSize
-	bp.scaleFactor = scaleFactor
+	// 执行取消操作
+	if bc.Cancel != nil {
+		bc.Cancel()
+	}
 
+	// 确保资源释放
+	bp.metrics.Active.Add(-1)
+	bp.metrics.Created.Add(-1)
+
+	// 状态标记
+	bc.Valid.Store(false)
+	//销毁进程
+	chromedp.Cancel(bc.Ctx)
+
+	global.GvaLog.Info("完成实例销毁",
+		zap.String("key", bc.Key),
+		zap.Time("last_used", bc.LastUsed.Load().(time.Time)))
+}
+
+// Configure 动态配置池参数
+func (bp *BrowserPool) Configure(minSize int, maxSize int, scaleFactor float64) error {
+	if minSize < 1 || maxSize < minSize || scaleFactor < 1.0 {
+		return fmt.Errorf("invalid parameters")
+	}
+	bp.minSize.Store(int32(minSize))
+	bp.maxSize.Store(int32(maxSize))
+	bp.scaleFactor.Store(math.Float64bits(scaleFactor))
 	if cap(bp.pool) != maxSize {
 		newPool := make(chan *BrowserContext, maxSize)
 		close(bp.pool)
@@ -396,11 +416,104 @@ func (bp *BrowserPool) Configure(minSize int, maxSize int, scaleFactor float64) 
 			if bc.isValid() {
 				newPool <- bc
 			} else {
-				bc.Cancel()
-				bp.activeCnt--
+				bp.destroyContext(bc)
+				global.GvaLog.Warn("实例已无效,执行销毁",
+					zap.String("key", string(bc.Key)))
 			}
 		}
 		bp.pool = newPool
+	}
+	return nil
+}
+
+func (bp *BrowserPool) setTimeout(bc *BrowserContext, timeout time.Duration) *BrowserContext {
+	if bc == nil {
+		return bc
+	}
+	// 处理零值情况，使用默认超时时间
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	lastUsed, ok := bc.LastUsed.Load().(time.Time)
+	if !ok {
+		global.GvaLog.Warn("无效的 LastUsed 类型",
+			zap.String("key", bc.Key),
+			zap.Any("actual_type", fmt.Sprintf("%T", bc.LastUsed.Load())))
+		return bc
+	}
+
+	// 计算新超时时间并确保不超过最大存活时间
+	newTimeout := min(timeout, browserKeepAlive)
+	updatedLastUsed := lastUsed.Add(newTimeout)
+	bc.LastUsed.Store(updatedLastUsed)
+
+	// 获取原始取消函数链
+	originalCancel := bc.Cancel
+
+	// 上下文超时设置（保持上下文链完整）
+	if deadline, ok := bc.Ctx.Deadline(); ok {
+		newDeadline := updatedLastUsed
+		if newDeadline.After(deadline) {
+			// 创建继承原有上下文的新实例
+			newCtx, cancel := context.WithDeadline(bc.Ctx, newDeadline)
+			// 新增剩余时间计算
+			remaining := time.Until(newDeadline)
+			// 构建新的取消函数链
+			bc.Cancel = func() {
+				cancel()
+				originalCancel() // 保持原有取消逻辑
+			}
+			bc.Ctx = newCtx
+
+			global.GvaLog.Info("浏览器实例超时时间已更新",
+				zap.String("key", bc.Key),
+				zap.Duration("added_timeout", newTimeout),
+				zap.Duration("remaining_time", remaining),
+				zap.Time("new_deadline", newDeadline))
+		}
+	} else {
+		// 继承浏览器分配器的原始上下文
+		allocCtx := context.Background()
+		if parentCtx := contextGetParent(bc.Ctx); parentCtx != nil {
+			allocCtx = parentCtx
+		}
+		newCtx, cancel := context.WithDeadline(allocCtx, updatedLastUsed)
+
+		// 保持完整的取消链
+		bc.Cancel = func() {
+			cancel()
+			originalCancel()
+		}
+		bc.Ctx = newCtx
+
+		global.GvaLog.Debug("新增上下文超时设置",
+			zap.String("key", bc.Key),
+			zap.Duration("timeout", newTimeout))
+	}
+
+	return bc
+}
+
+func contextGetParent(ctx context.Context) context.Context {
+	if ctx == nil {
+		return nil
+	}
+	switch ctx.(type) { // 移除未使用的变量c
+	case interface{ Deadline() (time.Time, bool) }:
+		return ctx
+	case interface{ Value(key any) any }:
+		return ctx
+	case interface{ Done() <-chan struct{} }:
+		return ctx
+	case interface{ Err() error }:
+		return ctx
+	default:
+		if reflect.TypeOf(ctx).String() == "*context.timerCtx" {
+			if parent := reflect.ValueOf(ctx).Elem().FieldByName("parent"); parent.IsValid() {
+				return parent.Interface().(context.Context)
+			}
+		}
+		return nil
 	}
 }
 
@@ -415,7 +528,7 @@ func getBaseAllocatorOptions() []chromedp.ExecAllocatorOption {
 		// 禁用后台网络请求（提升性能）
 		chromedp.Flag("disable-background-networking", true),
 		// 启用网络服务相关特性（优化资源管理）
-		chromedp.Flag("enable-features", "NetworkService,NetworkServiceInProcess"),
+		chromedp.Flag("enable-features", "NetworkService,NetworkServiceInProcess,PreciseMemoryInfo"),
 		// 禁用后台定时器节流（提升定时任务准确性）
 		chromedp.Flag("disable-background-timer-throttling", true),
 		// 禁止后台遮挡窗口优化（保持进程活跃）
@@ -426,8 +539,6 @@ func getBaseAllocatorOptions() []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-client-side-phishing-detection", true),
 		// 禁用默认应用程序（减少资源占用）
 		chromedp.Flag("disable-default-apps", true),
-		// 禁用/dev/shm共享内存（解决Docker环境问题）
-		chromedp.Flag("disable-dev-shm-usage", true),
 		// 禁用所有扩展程序（保证环境纯净）
 		chromedp.Flag("disable-extensions", true),
 		// 关闭特定浏览器特性（优化兼容性）
@@ -456,6 +567,15 @@ func getBaseAllocatorOptions() []chromedp.ExecAllocatorOption {
 		chromedp.Flag("password-store", "basic"),
 		// 启用模拟密钥链（兼容无密钥系统环境）
 		chromedp.Flag("use-mock-keychain", true),
+		chromedp.Flag("disable-notifications", true),
+		chromedp.Flag("enable-precise-memory-info", true),
+		chromedp.Flag("enable-memory-info", true),
+		chromedp.Flag("disable-features", "site-per-process,Translate,BlinkGenPropertyTrees,OutOfBlinkCors"), // 调整禁用特性
+		// 新增内存分析专用配置
+		chromedp.Flag("enable-memory-benchmarking", true),
+		chromedp.Flag("disable-memory-reducer", true),
+		// 允许使用共享内存
+		chromedp.Flag("disable-dev-shm-usage", false),
 	}
 	return options
 }

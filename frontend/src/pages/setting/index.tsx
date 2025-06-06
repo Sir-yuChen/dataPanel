@@ -212,6 +212,12 @@ const Setting = () => {
         const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             if (file) {
+                // 新增文件大小校验（5MB = 10 * 1024 * 1024）
+                if (file.size > 5 * 1024 * 1024) {
+                    showMessage("error", "图片大小不能超过10MB");
+                    e.target.value = ''; // 清空文件选择
+                    return;
+                }
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     if (event.target?.result) {
@@ -269,6 +275,7 @@ const Setting = () => {
                                                 accept="image/*"
                                                 onChange={handleFileUpload}
                                                 style={{display: 'none'}}
+
                                             />
                                             <UploadOutlined/>
                                         </label>

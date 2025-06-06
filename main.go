@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"dataPanel/serviceend/code"
 	"dataPanel/serviceend/global"
+	"dataPanel/serviceend/utils/crawler"
+	"dataPanel/serviceend/wails"
 	"errors"
 	"fmt"
 	"go.uber.org/zap"
@@ -14,9 +16,9 @@ import (
 )
 
 func main() {
-	//wails.Run()
+	wails.Run()
 	//单独启动后端项目
-	loadConfig()
+	//loadConfig()
 }
 
 func loadConfig() {
@@ -27,6 +29,7 @@ func loadConfig() {
 	code.InitDB("")
 	//参数初始化校验翻译器
 	code.InitTrans("zh")
+	defer crawler.GetBrowserPool().Close()
 	//路由配置
 	engine := code.CreateGinServer()
 	address := fmt.Sprintf(":%d", global.GvaConfig.System.Addr)
@@ -56,5 +59,6 @@ func loadConfig() {
 		global.GvaLog.Error("后台服务启动异常", zap.Error(err))
 		os.Exit(-1)
 	}
+
 	global.GvaLog.Info("服务启动成功", zap.Any("port", srv.Addr))
 }
