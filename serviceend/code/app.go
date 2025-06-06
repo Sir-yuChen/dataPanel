@@ -31,8 +31,6 @@ type App struct {
 	ctx     context.Context
 }
 
-var DefaultIcon = icon.Data
-
 func NewApp() *App {
 	app := &App{}
 	app.load()
